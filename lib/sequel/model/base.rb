@@ -712,7 +712,7 @@ module Sequel
       #   
       #   define_method(meth){self.class.send(meth)}
       def self.class_attr_reader(*meths) # :nodoc:
-        meths.each{|meth| class_eval("def #{meth}; model.#{meth} end", __FILE__, __LINE__)}
+        meths.each{|meth| class_eval("def #{meth}; self.class.#{meth} end", __FILE__, __LINE__)}
       end
 
       private_class_method :class_attr_overridable, :class_attr_reader
@@ -863,7 +863,7 @@ module Sequel
       #   Artist.new == Artist.new # => true
       #   Artist[1].set(:name=>'Bob') == Artist[1] # => false
       def eql?(obj)
-        (obj.class == model) && (obj.values == @values)
+        (obj.class == self.class) && (obj.values == @values)
       end
 
       # Returns the validation errors associated with this object.
@@ -904,7 +904,7 @@ module Sequel
       # Returns a string representation of the model instance including
       # the class name and values.
       def inspect
-        "#<#{model.name} @values=#{inspect_values}>"
+        "#<#{self.class.name} @values=#{inspect_values}>"
       end
   
       # Returns the keys in +values+.  May not include all column names.
@@ -986,7 +986,7 @@ module Sequel
       #   Artist[1].pk_hash # => {:id=>1}
       #   Artist[[1, 2]].pk_hash # => {:id1=>1, :id2=>2}
       def pk_hash
-        model.primary_key_hash(pk)
+        self.class.primary_key_hash(pk)
       end
       
       # Reloads attributes from database and returns self. Also clears all
@@ -1119,7 +1119,7 @@ module Sequel
       #   Artist[1].this
       #   # SELECT * FROM artists WHERE (id = 1) LIMIT 1
       def this
-        @this ||= model.dataset.filter(pk_hash).limit(1).naked
+        @this ||= self.class.dataset.filter(pk_hash).limit(1).naked
       end
       
       # Runs set with the passed hash and then runs save_changes.
@@ -1230,7 +1230,7 @@ module Sequel
       # the record should be refreshed from the database.
       def _insert
         ds = _insert_dataset
-        if !ds.opts[:select] and ds.respond_to?(:insert_select) and h = ds.insert_select(@values)
+        if ds.respond_to?(:insert_select) and h = ds.insert_select(@values)
           @values = h
           nil
         else
@@ -1247,7 +1247,7 @@ module Sequel
       # The dataset to use when inserting a new object.   The same as the model's
       # dataset by default.
       def _insert_dataset
-        model.dataset
+        self.class.dataset
       end
   
       # Refresh using a particular dataset, used inside save to make sure the same server
@@ -1375,7 +1375,7 @@ module Sequel
       # Set the columns, filtered by the only and except arrays.
       def set_restricted(hash, only, except)
         meths = if only.nil? && except.nil? && !@singleton_setter_added
-          model.setter_methods
+          self.class.setter_methods
         else
           setter_methods(only, except)
         end
@@ -1413,13 +1413,13 @@ module Sequel
       # restricted (RESTRICTED_SETTER_METHODS).  The primary key is restricted by default as
       # well, see Model.unrestrict_primary_key to change this.
       def setter_methods(only, except)
-        only = only.nil? ? model.allowed_columns : only
-        except = except.nil? ? model.restricted_columns : except
+        only = only.nil? ? self.class.allowed_columns : only
+        except = except.nil? ? self.class.restricted_columns : except
         if only
           only.map{|x| "#{x}="}
         else
           meths = methods.collect{|x| x.to_s}.grep(SETTER_METHOD_REGEXP) - RESTRICTED_SETTER_METHODS
-          meths -= Array(primary_key).map{|x| "#{x}="} if primary_key && model.restrict_primary_key?
+          meths -= Array(primary_key).map{|x| "#{x}="} if primary_key && self.class.restrict_primary_key?
           meths -= except.map{|x| "#{x}="} if except
           meths
         end
@@ -1433,7 +1433,7 @@ module Sequel
         value = nil if value == '' and typecast_empty_string_to_nil and col_schema[:type] and ![:string, :blob].include?(col_schema[:type])
         raise(InvalidValue, "nil/NULL is not allowed for the #{column} column") if raise_on_typecast_failure && value.nil? && (col_schema[:allow_null] == false)
         begin
-          model.db.typecast_value(col_schema[:type], value)
+          self.class.db.typecast_value(col_schema[:type], value)
         rescue InvalidValue
           raise_on_typecast_failure ? raise : value
         end
@@ -1472,7 +1472,7 @@ module Sequel
       #   # ...
       def destroy
         pr = proc{all{|r| r.destroy}.length}
-        model.use_transactions ? @db.transaction(&pr) : pr.call
+        self.class.use_transactions ? @db.transaction(&pr) : pr.call
       end
 
       # This allows you to call +to_hash+ without any arguments, which will
@@ -1487,7 +1487,7 @@ module Sequel
         if key_column
           super
         else
-          raise(Sequel::Error, "No primary key for model") unless model and pk = model.primary_key
+          raise(Sequel::Error, "No primary key for model") unless model and pk = self.class.primary_key
           super(pk, value_column) 
         end
       end
